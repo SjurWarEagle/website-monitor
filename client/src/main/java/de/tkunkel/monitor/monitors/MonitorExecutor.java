@@ -33,4 +33,8 @@ public class MonitorExecutor {
         });
         LOGGER.info("All monitors processed.");
     }
+
+    public List<String> getAllMonitorNames() {
+        return monitors.stream().map(Monitor::getName).toList();
+    }
 }

@@ -1,10 +1,12 @@
-package de.tkunkel.monitor; // Assuming a package structure
+package de.tkunkel.monitor.monitors; // Assuming a package structure
 
-import de.tkunkel.monitor.monitors.Monitor;
+import de.tkunkel.monitor.starter.Starter;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element; // Import Element
 import org.jsoup.select.Elements; // Import Elements
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -18,35 +20,41 @@ import java.util.Collections;
 import java.util.List; // Import List
 import java.util.ArrayList; // Import ArrayList
 
+@Service
 public class Minecraft extends Monitor {
+    private final TelegramMessageSender telegramMessageSender;
+    private static final Logger LOGGER = LoggerFactory.getLogger(Minecraft.class);
 
     private static final String URL =
             "https://www.minecraft.net/en-us/download/server/bedrock";
-//            "https://feedback.minecraft.net/hc/en-us/sections/360001186971-Release-Changelogs";
 
     // User-Agent from the image
     private static final String BROWSER_USER_AGENT =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 
+    public Minecraft(TelegramMessageSender telegramMessageSender) {
+        this.telegramMessageSender = telegramMessageSender;
+    }
+
 
     public static void main(String[] args) {
-        var serverEntries = new Minecraft().collectServerEntries();
+        var serverEntries = new Minecraft(new TelegramMessageSender()).collectServerEntries();
         if (serverEntries.isEmpty()) {
-            System.out.println("No changelog entries found containing 'Bedrock' in the text.");
+            LOGGER.info("No changelog entries found containing 'Bedrock' in the text.");
             // Optional: Inspect the HTML structure manually or print sample link text
-            // System.out.println("Sample link texts encountered:");
-            // potentialChangelogLinks.stream().limit(10).forEach(el -> System.out.println("  " + el.text()));
+            // LOGGER.info("Sample link texts encountered:");
+            // potentialChangelogLinks.stream().limit(10).forEach(el -> LOGGER.info("  " + el.text()));
         } else {
-            System.out.println("Found " + serverEntries.size() + " Bedrock changelog entries:");
+            LOGGER.info("Found " + serverEntries.size() + " Bedrock changelog entries:");
             for (String entry : serverEntries) {
-                System.out.println(entry);
+                LOGGER.info(entry);
             }
         }
 
     }
 
     public List<String> collectServerEntries() {
-        System.out.println("Attempting to download URL using HTTP/2: " + URL);
+        LOGGER.info("Attempting to download URL using HTTP/2: " + URL);
 
         // Create an HttpClient that *must* use HTTP/2
         HttpClient httpClient = HttpClient.newBuilder()
@@ -79,11 +87,11 @@ public class Minecraft extends Monitor {
 
             // Check the status code
             int statusCode = response.statusCode();
-            System.out.println("Response Status Code: " + statusCode);
+            LOGGER.info("Response Status Code: " + statusCode);
 
             // --- VERIFY PROTOCOL ---
             Version negotiatedVersion = response.version();
-            System.out.println("Negotiated Protocol Version: " + negotiatedVersion);
+            LOGGER.info("Negotiated Protocol Version: " + negotiatedVersion);
 
             if (negotiatedVersion != Version.HTTP_2) {
                 System.err.println(
@@ -93,7 +101,7 @@ public class Minecraft extends Monitor {
                 // Exit or throw if strictly requiring HTTP/2
                 System.exit(1);
             } else {
-                System.out.println("SUCCESS: Used HTTP/2 as required.");
+                LOGGER.info("SUCCESS: Used HTTP/2 as required.");
             }
             // -----------------------
 
@@ -104,15 +112,15 @@ public class Minecraft extends Monitor {
             System.err.println(
                     "An I/O error occurred during the HTTP/2 request (or HTTP/2 negotiation failed):"
             );
-            e.printStackTrace();
+            LOGGER.error("Error: " + e);
         } catch (InterruptedException e) {
             System.err.println("The HTTP request was interrupted:");
-            e.printStackTrace();
+            LOGGER.error("Error: " + e);
             // Restore interrupted state
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             System.err.println("An unexpected error occurred:");
-            e.printStackTrace();
+            LOGGER.error("Error: " + e);
         }
         return Collections.emptyList();
     }
@@ -120,7 +128,7 @@ public class Minecraft extends Monitor {
     private static List<String> parseResponse(int statusCode, HttpResponse<String> response) {
         List<String> serverZipEntires = new ArrayList<>();
         if (statusCode == 200) {
-            System.out.println("Successfully downloaded content via HTTP/2 (Status 200 OK).");
+            LOGGER.info("Successfully downloaded content via HTTP/2 (Status 200 OK).");
             // --- Jsoup parsing and filtering for Bedrock entries ---
             try {
                 Document doc = Jsoup.parse(response.body(), URL); // Parse with base URL
@@ -133,7 +141,7 @@ public class Minecraft extends Monitor {
                 Elements potentialChangelogLinks = doc.select("a");
 
 
-                System.out.println("\nSearching for 'Bedrock' changelog entries...");
+                LOGGER.info("Searching for 'Bedrock' changelog entries...");
 
                 for (Element linkElement : potentialChangelogLinks) {
                     String linkText = linkElement.text(); // Get the visible text of the link
@@ -151,7 +159,7 @@ public class Minecraft extends Monitor {
 
             } catch (Exception e) {
                 System.err.println("Error parsing HTML or selecting elements with Jsoup: " + e.getMessage());
-                e.printStackTrace(); // Print stack trace for debugging
+                LOGGER.error("Error: " + e);
             }
             // ----------------------------------------------------
             return serverZipEntires;
@@ -176,8 +184,15 @@ public class Minecraft extends Monitor {
     @Override
     public void execute() {
         List<String> strings = collectServerEntries();
-        String oldValue = readOldValue();
-        System.out.println("Old: " + oldValue);
-        System.out.println("New: " + strings);
+        String newValue = strings.get(0).trim();
+        String oldValue = readOldValue().trim();
+        LOGGER.debug("Old: " + oldValue);
+        LOGGER.debug("New: " + newValue);
+
+        if (!oldValue.equalsIgnoreCase(newValue)) {
+            storeNewValue(newValue);
+            String msg = ("⚒ Minecraft Bedrock Server Change detected!\nOld: '" + oldValue + "',\n New: '" + newValue + "'");
+            telegramMessageSender.sendMessage(msg);
+        }
     }
 }
