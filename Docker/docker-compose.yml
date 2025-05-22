@@ -2,8 +2,8 @@ version: '3.8'
 
 services:
   web:
-    image: wareagle/test
-    container_name: wareagle-test
+    image: wareagledocker/website-monitor
+    container_name: website-monitor
     restart: unless-stopped
     environment:
       - TELEGRAM_BOT_TOKEN=
